@@ -32,6 +32,8 @@ const RestaurantDetail = ({ restaurant, onAddToCart, cart, onBack, onInventoryDe
   const [reviews, setReviews] = useState([]);
   const [newRating, setNewRating] = useState(5);
   const [newComment, setNewComment] = useState("");
+  const [newUser, setNewUser] = useState("");
+
 
   // ⭐ LOAD REVIEWS ON MOUNT ⭐
   useEffect(() => {
@@ -45,25 +47,33 @@ const RestaurantDetail = ({ restaurant, onAddToCart, cart, onBack, onInventoryDe
 
   // ⭐ SUBMIT REVIEW HANDLER ⭐
   async function handleSubmitReview() {
-    if (!user) {
-      alert("You must be logged in to leave a review.");
+    if (!newUser.trim()) {
+      alert("Please enter your name before submitting.");
+      return;
+    }
+    if (!newComment.trim()) {
+      alert("Please enter a comment.");
       return;
     }
 
-    const result = await submitReview(restaurantId, {
+    const payload = {
+      user: newUser,
       rating: newRating,
       comment: newComment,
-      user: user.name,
-    });
+    };
+
+    const result = await submitReview(restaurantId, payload);
 
     if (result.success) {
       setReviews((prev) => [...prev, result.review]);
       setNewComment("");
+      setNewUser("");
       setNewRating(5);
     } else {
-      alert("Error submitting review");
+      alert("Error submitting review.");
     }
   }
+
 
   const menus = Array.isArray(restaurant.menus) ? restaurant.menus : [];
 
@@ -432,6 +442,17 @@ const RestaurantDetail = ({ restaurant, onAddToCart, cart, onBack, onInventoryDe
             <h4 className="text-lg font-semibold text-gray-800 mb-2">
               Leave a Review
             </h4>
+
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Your Name
+            </label>
+            <input
+              type="text"
+              value={newUser}
+              onChange={(e) => setNewUser(e.target.value)}
+              placeholder="Enter your name"
+              className="border rounded-md p-2 w-full mb-4"
+            />
 
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Rating

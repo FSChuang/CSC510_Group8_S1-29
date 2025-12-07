@@ -10,17 +10,13 @@ export async function fetchReviews(restaurantId) {
   }
 }
 
-export async function submitReview(restaurantId, { rating, comment, user }) {
-  try {
-    const res = await fetch(`/api/reviews/${restaurantId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rating, comment, user }),
-    });
+export async function submitReview(restaurantId, data) {
+  const response = await fetch(`http://localhost:3001/reviews/${restaurantId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
 
-    return await res.json();
-  } catch (err) {
-    console.error("Failed to submit review:", err);
-    return { success: false };
-  }
+  return response.json();
 }
+

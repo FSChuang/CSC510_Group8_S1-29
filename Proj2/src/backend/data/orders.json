@@ -2349,5 +2349,67 @@
     },
     "pickupPreference": "any",
     "timestamp": "2025-12-06T23:15:41.008Z"
+  },
+  {
+    "id": "order_1765070443967",
+    "userEmail": "test@gmail.com",
+    "items": [
+      {
+        "restaurant": "Eastside Deli",
+        "meal": {
+          "id": "eastside-deli-veggie-grain-bowl",
+          "name": "Veggie Grain Bowl",
+          "description": "Chef-selected surplus meal from today's unsold portions.",
+          "originalPrice": 12.99,
+          "rescuePrice": 7.99,
+          "pickupWindow": "1 hour",
+          "quantity": 3,
+          "availableQuantity": 1,
+          "maxPerOrder": 3,
+          "isRescueMeal": true
+        },
+        "quantity": 1,
+        "price": 7.99,
+        "isRescueMeal": true
+      }
+    ],
+    "totals": {
+      "rescueMealCount": 1,
+      "subtotal": 7.99,
+      "youSave": 5
+    },
+    "pickupPreference": "any",
+    "timestamp": "2025-12-07T01:20:43.967Z"
+  },
+  {
+    "id": "order_1765070539763",
+    "userEmail": "test@gmail.com",
+    "items": [
+      {
+        "restaurant": "Oak Street Bistro",
+        "meal": {
+          "id": "oak-street-bistro-biscuits-gravy",
+          "name": "Biscuits & Gravy",
+          "description": "Chef-selected surplus meal from today's unsold portions.",
+          "originalPrice": 9.99,
+          "rescuePrice": 5.99,
+          "pickupWindow": "3 hours",
+          "quantity": 4,
+          "availableQuantity": 2,
+          "maxPerOrder": 3,
+          "isRescueMeal": true
+        },
+        "quantity": 1,
+        "price": 5.99,
+        "isRescueMeal": true
+      }
+    ],
+    "totals": {
+      "rescueMealCount": 1,
+      "subtotal": 5.99,
+      "youSave": 4
+    },
+    "pickupPreference": "any",
+    "timestamp": "2025-12-07T01:22:19.763Z"
   }
 ]

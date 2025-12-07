@@ -73,6 +73,8 @@ loadUsers();
 app.use(cors());
 app.use(express.json());
 app.use("/reviews", reviewRoutes);
+app.use(express.urlencoded({ extended: true }));
+
 
 /* ------------------------------
  * Auth routes: Login / Register
