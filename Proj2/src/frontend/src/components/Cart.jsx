@@ -4,15 +4,90 @@
 // - Sends pickupPreference to backend so orders carry a simple time-slot hint.
 // - After successful checkout, shows an in-app thank-you screen instead of a blank page.
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Plus, Minus, Trash2 } from 'lucide-react';
+
+const RESCUE_STEPS = [
+  {
+    target: 25,
+    label: 'Order received',
+    description: 'We have your rescue order and are logging your impact.',
+  },
+  {
+    target: 50,
+    label: 'Reserving surplus meals',
+    description:
+      'We’re reserving surplus portions at the restaurant so they don’t get wasted.',
+  },
+  {
+    target: 75,
+    label: 'Coordinating pickup window',
+    description:
+      'We’re aligning your pickup window with the restaurant’s closing routine.',
+  },
+  {
+    target: 100,
+    label: 'Ready for pickup window',
+    description:
+      'Your rescued meal will be ready during your chosen pickup window.',
+  },
+];
 
 const Cart = ({ cart, setCart, onBack, onOrderPlaced, user }) => {
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [pickupPreference, setPickupPreference] = useState('any');
+  const [paymentMethod, setPaymentMethod] = useState('');
   const [orderSuccess, setOrderSuccess] = useState(null); // { rescuedMeals, youSave }
+  const [progress, setProgress] = useState(0);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [showCardDemo, setShowCardDemo] = useState(false);
 
   const safeCart = Array.isArray(cart) ? cart : [];
+
+  useEffect(() => {
+    // If there is no successful order yet, reset and do nothing
+    if (!orderSuccess) {
+      setProgress(0);
+      setCurrentStep(0);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timeouts = [];
+
+    const runStep = (stepIndex) => {
+      if (cancelled || stepIndex >= RESCUE_STEPS.length) return;
+
+      const step = RESCUE_STEPS[stepIndex];
+      setCurrentStep(stepIndex);
+
+      // Move the bar to this checkpoint
+      setProgress(step.target);
+
+      // Time for the bar to animate + pause at the checkpoint
+      const ANIMATION_MS = 2000; // bar visually moves ~2s
+      const PAUSE_MS = 4000; // stays at checkpoint for 4s
+      const TOTAL_WAIT = ANIMATION_MS + PAUSE_MS;
+
+      // Schedule next checkpoint
+      if (stepIndex < RESCUE_STEPS.length - 1) {
+        const timeoutId = setTimeout(() => {
+          runStep(stepIndex + 1);
+        }, TOTAL_WAIT);
+        timeouts.push(timeoutId);
+      }
+    };
+
+    // Start from the first checkpoint
+    setProgress(0);
+    runStep(0);
+
+    // Cleanup if user leaves the screen or a new order starts
+    return () => {
+      cancelled = true;
+      timeouts.forEach((id) => clearTimeout(id));
+    };
+  }, [orderSuccess]);
 
   // ----- Helpers for pricing & limits -----
 
@@ -136,12 +211,44 @@ const Cart = ({ cart, setCart, onBack, onOrderPlaced, user }) => {
   // ----- Submit order -----
 
   const handlePlaceOrder = async () => {
+    // Basic guards
     if (!safeCart.length) {
+      alert('Your cart is empty. Add a rescue meal to continue.');
       return;
     }
 
+    if (!paymentMethod) {
+      alert('Please choose a payment method to continue.');
+      return;
+    }
+
+    // Card demo: show the card UI, but do NOT place an order
+    if (paymentMethod === 'card_demo') {
+      setShowCardDemo(true);
+      alert(
+        'Card payment is a demo screen in this prototype. The Pay button will not complete the order.\n\nPlease choose Cash on Delivery to actually place your rescue order.'
+      );
+      return;
+    }
+
+    // Online / UPI demo: also does NOT place an order
+    if (paymentMethod === 'online') {
+      alert(
+        'Online payment is shown for demonstration only.\n\nPlease select Cash on Delivery to actually place the order.'
+      );
+      return;
+    }
+
+    // Only Cash on Delivery actually places the order
+    if (paymentMethod !== 'cash_on_delivery') {
+      // Safety net: nothing else should try to place an order
+      return;
+    }
+
+    // At this point we know we can place the order
     setIsPlacingOrder(true);
 
+    // Build payload for backend
     const payload = {
       cart: safeCart.map((item) => ({
         restaurant: item.restaurant,
@@ -155,25 +262,26 @@ const Cart = ({ cart, setCart, onBack, onOrderPlaced, user }) => {
         youSave: Number(totals.youSave.toFixed(2)),
       },
       pickupPreference,
+      paymentMethod, // 'cash_on_delivery'
     };
 
     try {
-      // Backend checkout route (proxied to http://localhost:5000/checkout)
       const response = await fetch('/checkout', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
-        const errData = await response.json().catch(() => null);
-        const message =
-          errData && errData.error
-            ? errData.error
-            : 'Failed to place order. Please try again.';
-        // eslint-disable-next-line no-alert
+        let message = 'Failed to place order. Please try again.';
+        try {
+          const errData = await response.json();
+          if (errData && errData.error) {
+            message = errData.error;
+          }
+        } catch (e) {
+          // ignore JSON parse errors, use default message
+        }
         alert(message);
         setIsPlacingOrder(false);
         return;
@@ -184,11 +292,13 @@ const Cart = ({ cart, setCart, onBack, onOrderPlaced, user }) => {
       const rescuedMeals = totals.count;
       const youSave = totals.youSave;
 
+      // Show success / progress view
       setOrderSuccess({
         rescuedMeals,
         youSave,
       });
 
+      // Notify parent if needed
       if (typeof onOrderPlaced === 'function') {
         onOrderPlaced({
           order: data.order || null,
@@ -197,12 +307,11 @@ const Cart = ({ cart, setCart, onBack, onOrderPlaced, user }) => {
         });
       }
 
+      // Clear cart
       setCart([]);
       setIsPlacingOrder(false);
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.error('Error placing order:', err);
-      // eslint-disable-next-line no-alert
       alert(
         'A network error occurred while placing your order. Please try again.'
       );
@@ -211,56 +320,102 @@ const Cart = ({ cart, setCart, onBack, onOrderPlaced, user }) => {
   };
 
   // ----- UI states -----
-
   // After successful checkout: full-screen thank-you message (no blank page)
   if (orderSuccess) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <header className="bg-white shadow">
-          <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-            <div className="w-6" />
-            <h1 className="text-lg font-semibold text-gray-800">
-              Thanks for rescuing food!
-            </h1>
-            <div className="w-6" />
-          </div>
-        </header>
+    const activeStep =
+      RESCUE_STEPS[Math.min(currentStep, RESCUE_STEPS.length - 1)];
 
-        <main className="max-w-3xl mx-auto px-4 py-8">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 text-center">
-            <p className="text-xl font-semibold text-gray-900 mb-2">
-              Order confirmed
-            </p>
-            <p className="text-sm text-gray-600 mb-4">
-              You rescued
-              {' '}
+    return (
+      <div className="max-w-xl mx-auto bg-white rounded-2xl shadow-md border border-green-100 p-6 mt-4 space-y-6">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center text-green-700 text-xl">
+            ✓
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">
+              Thanks for rescuing a meal!
+            </h2>
+            <p className="text-sm text-gray-600">
+              You&apos;ve rescued{' '}
               <span className="font-semibold text-green-700">
                 {orderSuccess.rescuedMeals}
-                {' '}
-                meals
-              </span>
-              {' '}
-              and saved
-              {' '}
+              </span>{' '}
+              meals and saved about{' '}
               <span className="font-semibold text-green-700">
-                $
-                {orderSuccess.youSave.toFixed(2)}
+                ${orderSuccess.youSave.toFixed(2)}
               </span>
               .
             </p>
-            <p className="text-sm text-gray-500 mb-6">
-              Show your confirmation at pickup. Your restaurant partner is
-              preparing your rescue meal.
-            </p>
-            <button
-              type="button"
-              onClick={onBack}
-              className="px-4 py-2 bg-green-600 text-white rounded-full text-sm font-medium hover:bg-green-700"
-            >
-              Back to browsing
-            </button>
           </div>
-        </main>
+        </div>
+
+        {/* Progress bar + checkpoints */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-semibold text-gray-700 uppercase tracking-wide">
+              Order progress
+            </span>
+            <span className="text-gray-500">
+              {Math.round(progress)}%
+            </span>
+          </div>
+          {/* The bar */}
+          <div className="w-full bg-gray-200 h-2.5 rounded-full overflow-hidden relative">
+            <div
+              className="h-2.5 bg-green-600 transition-all duration-1000 ease-linear"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          {/* Checkpoints (dots + labels) */}
+          <div className="flex justify-between text-[11px] text-gray-500">
+            {RESCUE_STEPS.map((step, index) => {
+              const isDone = index < currentStep;
+              const isActive = index === currentStep;
+              return (
+                <div
+                  key={step.label}
+                  className="flex-1 flex flex-col items-center"
+                >
+                  <div
+                    className={[
+                      'w-6 h-6 rounded-full border flex items-center justify-center text-[10px]',
+                      isDone
+                        ? 'bg-green-600 text-white border-green-600'
+                        : isActive
+                        ? 'bg-green-100 text-green-700 border-green-600'
+                        : 'bg-white text-gray-400 border-gray-300',
+                    ].join(' ')}
+                  >
+                    {isDone ? '✓' : index + 1}
+                  </div>
+                  <span className="mt-1 text-center leading-tight">
+                    {step.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {/* Description for the current checkpoint */}
+          <p className="text-xs text-gray-600">
+            {activeStep.description}
+          </p>
+        </div>
+        {/* Impact blurb */}
+        <div className="text-xs text-gray-500 bg-green-50 border border-green-100 rounded-xl p-3">
+          By choosing a rescue meal, you&apos;re helping this restaurant
+          reduce food waste and making better use of surplus food that would
+          otherwise be thrown away.
+        </div>
+        <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
+          <button
+            type="button"
+            onClick={onBack}
+            className="text-xs font-medium text-green-700 hover:text-green-800"
+          >
+            Back to restaurants
+          </button>
+        </div>
       </div>
     );
   }
@@ -337,37 +492,30 @@ const Cart = ({ cart, setCart, onBack, onOrderPlaced, user }) => {
                     <p className="text-sm font-medium text-gray-900">
                       {meal.name || 'Rescue meal'}
                     </p>
-                    <p className="text-xs text-gray-500">
-                      {restaurantName}
-                    </p>
+                    <p className="text-xs text-gray-500">{restaurantName}</p>
                     <p className="text-xs text-gray-500 mt-1">
-                      Pickup:
-                      {' '}
+                      Pickup:{' '}
                       {meal.pickupWindow || 'Pickup within today'}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
                       {Number.isFinite(original) && original > 0 ? (
                         <>
                           <span className="line-through mr-1">
-                            $
-                            {original.toFixed(2)}
+                            ${original.toFixed(2)}
                           </span>
                           <span className="text-green-700 font-semibold">
-                            $
-                            {unitPrice.toFixed(2)}
+                            ${unitPrice.toFixed(2)}
                           </span>
                         </>
                       ) : (
                         <span className="text-green-700 font-semibold">
-                          $
-                          {unitPrice.toFixed(2)}
+                          ${unitPrice.toFixed(2)}
                         </span>
                       )}
                     </p>
                     {lineSavings > 0 && (
                       <p className="text-xs text-green-600 mt-1">
-                        You save $
-                        {lineSavings.toFixed(2)}
+                        You save ${lineSavings.toFixed(2)}
                       </p>
                     )}
                   </div>
@@ -404,11 +552,7 @@ const Cart = ({ cart, setCart, onBack, onOrderPlaced, user }) => {
                     </div>
                     {Number.isFinite(maxQty) && maxQty > 0 && (
                       <p className="mt-1 text-[10px] text-gray-500">
-                        Max:
-                        {' '}
-                        {maxQty}
-                        {' '}
-                        today
+                        Max: {maxQty} today
                       </p>
                     )}
                     <button
@@ -440,8 +584,7 @@ const Cart = ({ cart, setCart, onBack, onOrderPlaced, user }) => {
               Subtotal
             </span>
             <span className="text-sm font-semibold text-gray-900">
-              $
-              {totals.subtotal.toFixed(2)}
+              ${totals.subtotal.toFixed(2)}
             </span>
           </div>
           <div className="flex items-center justify-between">
@@ -449,8 +592,7 @@ const Cart = ({ cart, setCart, onBack, onOrderPlaced, user }) => {
               You save
             </span>
             <span className="text-sm font-semibold text-green-700">
-              $
-              {totals.youSave.toFixed(2)}
+              ${totals.youSave.toFixed(2)}
             </span>
           </div>
 
@@ -479,6 +621,115 @@ const Cart = ({ cart, setCart, onBack, onOrderPlaced, user }) => {
               ))}
             </div>
           </div>
+
+          <div>
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Payment method
+            </h3>
+            <div className="space-y-2">
+              {/* Cash on Delivery */}
+              <label className="flex items-center space-x-3 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  value="cash_on_delivery"
+                  checked={paymentMethod === 'cash_on_delivery'}
+                  onChange={(e) => {
+                    setPaymentMethod(e.target.value);
+                    setShowCardDemo(false);
+                  }}
+                  className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300"
+                />
+                <span>Cash on Delivery</span>
+              </label>
+
+              {/* Online demo (NetBanking / UPI) */}
+              <label className="flex items-center space-x-3 text-sm text-gray-400">
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  value="online"
+                  checked={paymentMethod === 'online'}
+                  onChange={(e) => {
+                    setPaymentMethod(e.target.value);
+                    setShowCardDemo(false);
+                  }}
+                  className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300"
+                />
+                <span>NetBanking / Online (demo)</span>
+              </label>
+
+              {/* Card payment demo */}
+              <label className="flex items-center space-x-3 text-sm text-gray-400">
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  value="card_demo"
+                  checked={paymentMethod === 'card_demo'}
+                  onChange={(e) => {
+                    setPaymentMethod(e.target.value);
+                    setShowCardDemo(true); // show the fake card form
+                  }}
+                  className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300"
+                />
+                <span>Card payment (demo – pay button disabled)</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Card payment demo UI – does NOT actually charge or place order */}
+          {showCardDemo && !orderSuccess && (
+            <div className="mt-3 p-3 rounded-xl border border-gray-200 bg-gray-50 space-y-3">
+              <p className="text-xs font-semibold text-gray-700">
+                Card payment (demo)
+              </p>
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs focus:outline-none"
+                  placeholder="Card number"
+                  disabled
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    className="flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-xs focus:outline-none"
+                    placeholder="MM/YY"
+                    disabled
+                  />
+                  <input
+                    type="text"
+                    className="flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-xs focus:outline-none"
+                    placeholder="CVV"
+                    disabled
+                  />
+                </div>
+                <input
+                  type="text"
+                  className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs focus:outline-none"
+                  placeholder="Name on card"
+                  disabled
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  alert(
+                    'This is a demo card screen. Card payments are disabled in this prototype. Please choose Cash on Delivery to complete your rescue order.'
+                  )
+                }
+                className="mt-2 w-full text-xs font-semibold rounded-lg px-3 py-2 bg-gray-300 text-gray-500 cursor-not-allowed"
+              >
+                Pay (disabled in demo)
+              </button>
+
+              <p className="text-[11px] text-gray-500">
+                Card details are intentionally disabled in this rescue meal
+                prototype. Only Cash on Delivery actually completes the order.
+              </p>
+            </div>
+          )}
 
           <div className="pt-2">
             <button
